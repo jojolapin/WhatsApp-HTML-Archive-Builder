@@ -1,0 +1,13 @@
+# WhatsApp Chat to HTML Converter – Whisper Edition
+# Direct dependencies (pip will resolve transitive deps automatically)
+#
+# Usage:
+#   python -m venv .venv
+#   .venv\Scripts\activate      (Windows)
+#   source .venv/bin/activate   (macOS/Linux)
+#   pip install -r requirements.txt
+
+openai-whisper==20250625
+PySide6==6.10.2
+pycryptodome==3.23.0
+pytz==2025.2
