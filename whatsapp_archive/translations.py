@@ -95,6 +95,9 @@ TRANSLATIONS = {
         "html_reset_states": "Reset States",
         "html_states_saved": "Checkbox states saved!",
         "html_states_reset": "Checkbox states reset!",
+        "html_note_placeholder": "Add a note…",
+        "html_notes_saved": "Notes saved!",
+        "html_message_deleted": "Message {num} — Deleted",
 
         "how_to_use_content": """
             <h2>Welcome! Here's how to use this tool.</h2>
@@ -239,6 +242,9 @@ TRANSLATIONS = {
         "html_reset_states": "Réinit. États",
         "html_states_saved": "États des cases cochées enregistrés !",
         "html_states_reset": "États des cases cochées réinitialisés !",
+        "html_note_placeholder": "Ajouter une note…",
+        "html_notes_saved": "Notes sauvegardées !",
+        "html_message_deleted": "Message {num} — Supprimé",
 
         "how_to_use_content": """
             <h2>Bienvenue ! Voici comment utiliser cet outil.</h2>

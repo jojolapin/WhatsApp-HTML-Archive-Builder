@@ -2,8 +2,20 @@
 import html
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+_FRENCH_DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+_FRENCH_MONTHS = [
+    "", "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+]
+
+
+def _format_french_date(dt: datetime) -> str:
+    day_name = _FRENCH_DAYS[dt.weekday()]
+    return f"{day_name} {dt.day} {_FRENCH_MONTHS[dt.month]} {dt.year}"
 
 from whatsapp_archive.config import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS
 from whatsapp_archive.encryptor import encrypt_file
@@ -35,10 +47,22 @@ def build_html(messages, media_root: Path, out_html: Path, title: str,
     js_constants = f'''
 const HTML_STATES_SAVED = {json.dumps(html_t["html_states_saved"])};
 const HTML_STATES_RESET = {json.dumps(html_t["html_states_reset"])};
+const HTML_NOTES_SAVED = {json.dumps(html_t["html_notes_saved"])};
+const HTML_MESSAGE_DELETED = {json.dumps(html_t["html_message_deleted"])};
 const PRIORITIES = ["none", "red", "amber", "orange", "white"];
 '''
 
     js_functions = r'''
+const FILE_KEY = location.pathname.split('/').pop() || 'default';
+function storageKey(key) { return FILE_KEY + ':' + key; }
+function migrateKey(oldKey) {
+    var val = localStorage.getItem(storageKey(oldKey));
+    if (val) return val;
+    val = localStorage.getItem(oldKey);
+    if (val) { localStorage.setItem(storageKey(oldKey), val); }
+    return val;
+}
+
 let currentTheme='light';
 function setTheme(t){
  document.body.classList.remove('theme-dark','theme-light','theme-vibrant');
@@ -52,44 +76,106 @@ function rotateImage(id){
  img.setAttribute('data-angle',angle);
 }
 function filterMessages(){
- const q=document.getElementById('q').value.toLowerCase();
+ const input = document.getElementById('q').value.trim();
+ const q = input.toLowerCase();
+ const numMatch = input.match(/^(?:#|message|msg)?\s*(\d+)\s*$/i);
+ const targetNum = numMatch ? parseInt(numMatch[1], 10) : null;
+
+ if (targetNum !== null) {
+   document.querySelectorAll('.msg').forEach(c => { c.style.display = ''; });
+   updateMessageNumbers();
+   const targetMsg = document.querySelector('.msg[data-original-number="' + targetNum + '"]');
+   if (targetMsg) {
+     targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+     targetMsg.classList.add('msg-highlight');
+     setTimeout(function(){ targetMsg.classList.remove('msg-highlight'); }, 2000);
+   }
+   return;
+ }
  document.querySelectorAll('.msg').forEach(c=>{
    const t=c.innerText.toLowerCase();
    c.style.display=t.includes(q)?'':'none';
  });
- updateMessageNumbers(); // <-- Update numbers after filtering
+ updateMessageNumbers();
 }
 function getAllCards(){return Array.from(document.querySelectorAll('.msg'));}
-function selectAll(){getAllCards().forEach(c=>c.querySelector('input[type="checkbox"]').checked=true);}
-function clearAll(){getAllCards().forEach(c=>c.querySelector('input[type="checkbox"]').checked=false);}
-function invertSel(){getAllCards().forEach(c=>{const cb=c.querySelector('input[type="checkbox"]');cb.checked=!cb.checked;});}
+function selectAll(){getAllCards().forEach(c=>{const cb=c.querySelector('.msg-body input[type="checkbox"]');if(cb)cb.checked=true;});}
+function clearAll(){getAllCards().forEach(c=>{const cb=c.querySelector('.msg-body input[type="checkbox"]');if(cb)cb.checked=false;});}
+function invertSel(){getAllCards().forEach(c=>{const cb=c.querySelector('.msg-body input[type="checkbox"]');if(cb)cb.checked=!cb.checked;});}
 function deleteSelected(){
-    getAllCards().filter(c=>c.querySelector('input[type="checkbox"]').checked).forEach(c=>c.remove());
-    updateMessageNumbers(); // <-- Update numbers after deleting
+    getAllCards().filter(c=>{
+        const cb=c.querySelector('.msg-body input[type="checkbox"]');
+        return cb && cb.checked && !c.dataset.deleted;
+    }).forEach(c=>{
+        const num = c.getAttribute('data-original-number');
+        c.dataset.deleted = 'true';
+        c.classList.add('msg-deleted');
+        const body = c.querySelector('.msg-body');
+        const ph = c.querySelector('.msg-deleted-placeholder');
+        if (body) body.style.display = 'none';
+        if (ph) {
+            ph.textContent = HTML_MESSAGE_DELETED.replace('{num}', num);
+            ph.style.display = 'block';
+            ph.removeAttribute('aria-hidden');
+        }
+    });
+    saveDeletedStates();
+    updateMessageNumbers();
 }
 function downloadHTML(){
- // 1. Bake in current numbers and priorities into attributes
+ // 1. Ensure badge text is permanent number; bake priorities
  updateMessageNumbers();
  document.querySelectorAll('.msg').forEach(msg => {
-    if (window.getComputedStyle(msg).display !== 'none') {
-        // Bake in priority
-        const marker = msg.querySelector('.msg-priority-marker');
-        if (marker) {
-            marker.setAttribute('data-priority', marker.dataset.priority);
-        }
-        // Bake in number
-        const numBadge = msg.querySelector('.msg-number');
-        if (numBadge) {
-            numBadge.setAttribute('data-number', numBadge.textContent);
-        }
-    }
+    const marker = msg.querySelector('.msg-priority-marker');
+    if (marker) marker.setAttribute('data-priority', marker.dataset.priority || 'none');
  });
 
- // 2. Clone the document
+ // 2. Snapshot note values so they survive cloneNode
+ const noteSnapshots = {};
+ document.querySelectorAll('.msg-note').forEach(ta => {
+     noteSnapshots[ta.id] = ta.value;
+ });
+
+ // 3. Clone the document
  const clonedDoc = document.cloneNode(true);
 
- // 3. Clean the clone
- clonedDoc.querySelectorAll('input[type="checkbox"]').forEach(el => el.remove());
+ // 4. Bake note values into the clone
+ clonedDoc.querySelectorAll('.msg-note').forEach(ta => {
+     const val = noteSnapshots[ta.id] || '';
+     ta.textContent = val;
+     ta.setAttribute('data-baked', 'true');
+     if (val.trim()) {
+         ta.classList.add('has-content');
+     } else {
+         ta.classList.remove('has-content');
+     }
+     ta.removeAttribute('oninput');
+ });
+
+ // 5. Bake checkbox states into the HTML (keep them, don't remove)
+ clonedDoc.querySelectorAll('.msg input[type="checkbox"]').forEach(cb => {
+   if (cb.checked) {
+     cb.setAttribute('checked', 'checked');
+   } else {
+     cb.removeAttribute('checked');
+   }
+ });
+
+ // 6. Bake transcription edits from live DOM into the clone
+ document.querySelectorAll('pre[contenteditable="true"][id^="transcription-pre-"]').forEach(srcPre => {
+   const clonedPre = clonedDoc.getElementById(srcPre.id);
+   if (clonedPre) {
+     clonedPre.textContent = srcPre.innerText;
+   }
+ });
+
+ // 7. Mark the file as "baked" so loaded copies skip localStorage
+ const bakedMeta = clonedDoc.createElement('meta');
+ bakedMeta.setAttribute('name', 'baked-state');
+ bakedMeta.setAttribute('content', 'true');
+ clonedDoc.querySelector('head').appendChild(bakedMeta);
+
+ // 8. Clean interactive-only buttons from the clone
  clonedDoc.querySelectorAll('.msg-priority-marker').forEach(el => el.removeAttribute('onclick'));
  const buttonsToRemove = [
    "selectAll()",
@@ -107,17 +193,13 @@ function downloadHTML(){
    }
  });
 
- // 4. Set final baked-in numbers in the clone (and remove from hidden)
+ // 9. Set badge text to permanent number in clone
  clonedDoc.querySelectorAll('.msg').forEach(msg => {
     const numBadge = msg.querySelector('.msg-number');
-    if (numBadge) {
-        const num = numBadge.getAttribute('data-number');
-        if (num) {
-            numBadge.textContent = num;
-        } else {
-            numBadge.remove(); // Remove badge from hidden messages
-        }
-        numBadge.removeAttribute('data-number');
+    const num = msg.getAttribute('data-original-number');
+    if (numBadge && num) {
+        numBadge.textContent = num;
+        numBadge.style.display = 'flex';
     }
  });
 
@@ -127,12 +209,12 @@ function downloadHTML(){
  const a=document.createElement('a');
  a.href=URL.createObjectURL(blob);
  const ts=new Date().toISOString().replace(/[:.]/g,'-');
- a.download='chat_pruned_'+ts+'.html';document.body.appendChild(a);a.click();a.remove();
+ a.download='chat_exported_'+ts+'.html';document.body.appendChild(a);a.click();a.remove();
 }
 function saveEdit(element) {
   if (element.id && window.localStorage) {
     try {
-      localStorage.setItem(element.id, element.innerText);
+      localStorage.setItem(storageKey(element.id), element.innerText);
     } catch (e) {
       console.error("LocalStorage save failed:", e);
     }
@@ -142,7 +224,11 @@ function loadEdits() {
   if (!window.localStorage) return;
   const pres = document.querySelectorAll('pre[contenteditable="true"][id^="transcription-pre-"]');
   pres.forEach(pre => {
-    const savedText = localStorage.getItem(pre.id);
+    var savedText = localStorage.getItem(storageKey(pre.id));
+    if (savedText === null) {
+      savedText = localStorage.getItem(pre.id);
+      if (savedText !== null) { localStorage.setItem(storageKey(pre.id), savedText); }
+    }
     if (savedText !== null) {
       pre.innerText = savedText;
     }
@@ -156,7 +242,7 @@ function saveCheckboxStates() {
         document.querySelectorAll('.msg input[type="checkbox"]').forEach(cb => {
             if(cb.id) { states[cb.id] = cb.checked; }
         });
-        localStorage.setItem('checkboxStates', JSON.stringify(states));
+        localStorage.setItem(storageKey('checkboxStates'), JSON.stringify(states));
         alert(HTML_STATES_SAVED);
     } catch (e) {
         console.error("Failed to save checkbox states:", e);
@@ -165,7 +251,7 @@ function saveCheckboxStates() {
 }
 function loadCheckboxStates() {
     try {
-        const states = JSON.parse(localStorage.getItem('checkboxStates') || '{}');
+        const states = JSON.parse(migrateKey('checkboxStates') || '{}');
         Object.keys(states).forEach(id => {
             const cb = document.getElementById(id);
             if (cb) { cb.checked = states[id]; }
@@ -175,13 +261,51 @@ function loadCheckboxStates() {
     }
 }
 function resetCheckboxStates() {
-    localStorage.removeItem('checkboxStates');
+    localStorage.removeItem(storageKey('checkboxStates'));
     document.querySelectorAll('.msg input[type="checkbox"]').forEach(cb => {
         cb.checked = false;
     });
     alert(HTML_STATES_RESET);
 }
 /* --- End Checkbox Persistence --- */
+
+/* --- Notes Logic --- */
+function onNoteInput(el) {
+    el.classList.toggle('has-content', el.value.trim().length > 0);
+    saveNotes();
+}
+function saveNotes() {
+    try {
+        const notes = {};
+        document.querySelectorAll('.msg-note').forEach(ta => {
+            if (ta.id && ta.value.trim()) { notes[ta.id] = ta.value; }
+        });
+        localStorage.setItem(storageKey('msgNotes'), JSON.stringify(notes));
+    } catch (e) {
+        console.error("Failed to save notes:", e);
+    }
+}
+function loadNotes() {
+    try {
+        document.querySelectorAll('.msg-note[data-baked="true"]').forEach(ta => {
+            ta.value = ta.textContent;
+            ta.textContent = '';
+            ta.removeAttribute('data-baked');
+            ta.classList.toggle('has-content', ta.value.trim().length > 0);
+        });
+        const notes = JSON.parse(migrateKey('msgNotes') || '{}');
+        Object.keys(notes).forEach(id => {
+            const ta = document.getElementById(id);
+            if (ta && !ta.value.trim()) {
+                ta.value = notes[id];
+                ta.classList.toggle('has-content', ta.value.trim().length > 0);
+            }
+        });
+    } catch (e) {
+        console.error("Failed to load notes:", e);
+    }
+}
+/* --- End Notes Logic --- */
 
 /* --- NEW: Priority Logic --- */
 function cyclePriority(event) {
@@ -201,14 +325,14 @@ function savePriorities() {
             const priority = msg.querySelector('.msg-priority-marker').dataset.priority;
             priorities[id] = priority;
         });
-        localStorage.setItem('msgPriorities', JSON.stringify(priorities));
+        localStorage.setItem(storageKey('msgPriorities'), JSON.stringify(priorities));
     } catch (e) {
         console.error("Failed to save priorities:", e);
     }
 }
 function loadPriorities() {
     try {
-        const priorities = JSON.parse(localStorage.getItem('msgPriorities') || '{}');
+        const priorities = JSON.parse(migrateKey('msgPriorities') || '{}');
         Object.keys(priorities).forEach(id => {
             const msg = document.querySelector(`.msg[data-msg-id="${id}"]`);
             if (msg) {
@@ -224,33 +348,69 @@ function loadPriorities() {
 }
 /* --- End Priority Logic --- */
 
-/* --- NEW: Numbering Logic --- */
+/* --- Permanent numbering: badge shows data-original-number, visibility follows filter --- */
 function updateMessageNumbers() {
-    let count = 1;
     document.querySelectorAll('.msg').forEach(msg => {
         const numBadge = msg.querySelector('.msg-number');
-        if (!numBadge) return; // Safety check
-
-        if (window.getComputedStyle(msg).display !== 'none') {
-            numBadge.textContent = count;
+        if (!numBadge) return;
+        const num = msg.getAttribute('data-original-number');
+        numBadge.textContent = num || '';
+        numBadge.setAttribute('data-original-number', num || '');
+        if (msg.dataset.deleted === 'true') {
             numBadge.style.display = 'flex';
-            count++;
         } else {
-            numBadge.textContent = '';
-            numBadge.style.display = 'none';
+            numBadge.style.display = (window.getComputedStyle(msg).display !== 'none') ? 'flex' : 'none';
         }
     });
 }
 /* --- End Numbering Logic --- */
 
+/* --- Deleted state persistence --- */
+function saveDeletedStates() {
+    try {
+        const ids = [];
+        document.querySelectorAll('.msg[data-deleted="true"]').forEach(msg => {
+            if (msg.dataset.msgId) ids.push(msg.dataset.msgId);
+        });
+        localStorage.setItem(storageKey('msgDeletedIds'), JSON.stringify(ids));
+    } catch (e) { console.error("Failed to save deleted states:", e); }
+}
+function loadDeletedStates() {
+    try {
+        const ids = JSON.parse(migrateKey('msgDeletedIds') || '[]');
+        ids.forEach(id => {
+            const msg = document.querySelector('.msg[data-msg-id="' + id + '"]');
+            if (msg && !msg.dataset.deleted) {
+                const num = msg.getAttribute('data-original-number');
+                msg.dataset.deleted = 'true';
+                msg.classList.add('msg-deleted');
+                const body = msg.querySelector('.msg-body');
+                const ph = msg.querySelector('.msg-deleted-placeholder');
+                if (body) body.style.display = 'none';
+                if (ph) {
+                    ph.textContent = HTML_MESSAGE_DELETED.replace('{num}', num);
+                    ph.style.display = 'block';
+                    ph.removeAttribute('aria-hidden');
+                }
+            }
+        });
+    } catch (e) { console.error("Failed to load deleted states:", e); }
+}
+/* --- End Deleted state --- */
+
 document.addEventListener('DOMContentLoaded', () => {
-    loadEdits();
-    loadCheckboxStates();
-    loadPriorities(); // <-- Load priorities
-    updateMessageNumbers(); // <-- Run numbering on load
+    const isBaked = !!document.querySelector('meta[name="baked-state"][content="true"]');
+
+    if (!isBaked) {
+        loadEdits();
+        loadCheckboxStates();
+        loadPriorities();
+        loadDeletedStates();
+    }
+    loadNotes();
+    updateMessageNumbers();
 
     try {
-        const themeSelector = document.querySelector('.toolbar select');
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
             setTheme('dark');
         } else {
@@ -529,11 +689,11 @@ async function initWhisperTranscription(button, audioSrc) {
 
         # --- NEW: Get timezone-aware datetimes ---
         dt_obj = m.get("datetime_obj")
-        date_str = dt_obj.strftime('%m/%d/%y')
-        time_str = dt_obj.strftime('%I:%M %p')  # 12-hour format
+        date_str = _format_french_date(dt_obj)
+        time_str = dt_obj.strftime('%H:%M')
 
         gmt_dt = dt_obj.astimezone(UTC_TZ)
-        gmt_time_str = gmt_dt.strftime('%H:%M %Z')  # 24-hour format + "GMT"
+        gmt_time_str = gmt_dt.strftime('%H:%M %Z')
 
         meta = f'{html.escape(date_str)} {html.escape(time_str)} (<b>{html.escape(gmt_time_str)}</b>)'
         if name:
@@ -547,17 +707,25 @@ async function initWhisperTranscription(button, audioSrc) {
         else:
             content_block = f'<div class="content">{html.escape(msg)}</div>'
 
-        # --- MODIFIED: Added data-msg-id, number badge, and priority marker ---
+        note_id = f"note-{msg_id}"
+        note_placeholder = html.escape(html_t["html_note_placeholder"])
+        original_num = i + 1
+
         blocks.append(f'''
-<div class="msg{external_class}" style="{style_vars}" data-msg-id="{msg_id}">
+<div class="msg{external_class}" style="{style_vars}" data-msg-id="{msg_id}" data-original-number="{original_num}">
+<div class="msg-number" data-original-number="{original_num}">{original_num}</div>
+<div class="msg-body">
 <input type="checkbox" style="margin-top:4px;" id="{checkbox_id}">
 <div style="flex:1">
-<div class="msg-number"></div>
 <div class="msg-priority-marker" data-priority="none" onclick="cyclePriority(event)"></div>
 <div class="meta">{meta}</div>
 {content_block}
 {media_block}
-</div></div>''')
+</div>
+<textarea class="msg-note" id="{note_id}" placeholder="{note_placeholder}" oninput="onNoteInput(this)"></textarea>
+</div>
+<div class="msg-deleted-placeholder" style="display:none" aria-hidden="true"></div>
+</div>''')
     # --- END MODIFICATION ---
 
     key_script = f"<script>window.ENC_KEY = '{encryption_key}';</script>" if encryption_key else ""

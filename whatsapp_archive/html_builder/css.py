@@ -27,6 +27,12 @@ body.theme-vibrant .toolbar button,body.theme-vibrant .toolbar select,body.theme
 .search input{width:100%;padding:10px;border-radius:8px;border:1px solid;box-sizing:border-box}
 .container{max-width:960px;margin:auto;padding:16px}
 .msg{display:flex;gap:8px;align-items:flex-start;border-radius:14px;padding:10px 12px;margin:10px 0;line-height:1.35; border-left: 4px solid transparent; position: relative;}
+.msg-body{display:flex;gap:8px;align-items:flex-start;flex:1;min-width:0;margin-left:2px;}
+.msg-deleted-placeholder{display:none;flex:1;font-size:12px;font-style:italic;opacity:.85;padding:8px 0;}
+.msg.msg-deleted .msg-body{display:none !important;}
+.msg.msg-deleted .msg-deleted-placeholder{display:block !important;}
+.msg.msg-highlight{animation:msgHighlight 2s ease;}
+@keyframes msgHighlight{0%,100%{box-shadow:none}30%,70%{box-shadow:0 0 0 3px rgba(59,130,246,0.6)}}
 .msg.msg-external{border:2px dashed #3b82f6 !important;background:rgba(59,130,246,0.05) !important}
 body.theme-dark .msg.msg-external{background:rgba(59,130,246,0.1) !important}
 .msg.msg-external .name { color: #FF8C00; font-weight: bold; }
@@ -44,6 +50,21 @@ body.theme-dark .msg.msg-external{background:rgba(59,130,246,0.1) !important}
 .trans pre[contenteditable="true"]{outline:1px dashed #999;padding:4px;border-radius:4px}
 .trans pre[contenteditable="true"]:focus{outline:2px solid #3b82f6}
 .trans pre{white-space:pre-wrap;word-wrap:break-word;margin:0}
+.msg-note{
+ min-width:400px;max-width:600px;min-height:60px;padding:6px 8px;
+ border:1px dashed #ccc;border-radius:8px;font-size:12px;font-family:inherit;
+ resize:both;background:rgba(255,255,200,0.15);color:inherit;
+ line-height:1.35;box-sizing:border-box;flex-shrink:0;
+}
+.msg-note:focus{outline:2px solid #3b82f6;border-color:#3b82f6}
+.msg-note::placeholder{color:#999;font-style:italic}
+body.theme-dark .msg-note{border-color:#555;background:rgba(255,255,200,0.05)}
+body.theme-dark .msg-note::placeholder{color:#777}
+body.theme-vibrant .msg-note{border-color:#555;background:rgba(255,255,200,0.05)}
+body.theme-vibrant .msg-note::placeholder{color:#777}
+.msg-note.has-content{border-style:solid;background:rgba(255,255,200,0.25)}
+body.theme-dark .msg-note.has-content{background:rgba(255,255,200,0.1)}
+body.theme-vibrant .msg-note.has-content{background:rgba(255,255,200,0.1)}
 .footer{text-align:center;font-size:12px;color:#888;padding:20px}
 .transcribe-btn{margin-top:8px;padding:6px 10px;font-size:12px;font-weight:500;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer}
 .transcribe-btn:disabled{background:#555;cursor:default;opacity:0.8}
@@ -100,8 +121,9 @@ body.theme-dark .msg-priority-marker[data-priority="white"] { background-color: 
  .header{padding:8px 12px}
  .toolbar{padding:8px 12px;gap:6px;position:sticky;top:44px}
  .toolbar button,.toolbar select{padding:6px 8px;font-size:13px}
- .search{padding:0 8px 8px;position:sticky:top:86px}
- .msg{margin:8px 0;padding:8px 10px;gap:6px}
+ .search{padding:0 8px 8px;position:sticky;top:86px}
+ .msg{margin:8px 0;padding:8px 10px;gap:6px;flex-wrap:wrap}
+ .msg-note{min-width:100%;max-width:100%;min-height:40px;margin-top:6px;font-size:11px}
  .msg-number { top: 2px; left: -6px; width: 16px; height: 16px; font-size: 9px; }
  .msg-priority-marker { width: 20px; height: 10px; }
 }
