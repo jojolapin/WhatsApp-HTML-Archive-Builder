@@ -26,13 +26,18 @@ body.theme-vibrant .toolbar button,body.theme-vibrant .toolbar select,body.theme
 .search{padding:0 16px 8px;position:sticky;top:100px;background:inherit;z-index:9}
 .search input{width:100%;padding:10px;border-radius:8px;border:1px solid;box-sizing:border-box}
 .container{max-width:960px;margin:auto;padding:16px}
-.msg{display:flex;gap:8px;align-items:flex-start;border-radius:14px;padding:10px 12px;margin:10px 0;line-height:1.35; border-left: 4px solid transparent; position: relative;}
+.msg{display:flex;gap:8px;align-items:flex-start;border-radius:14px;padding:10px 12px;margin:10px 0;line-height:1.35; border-left: 4px solid transparent; position: relative; scroll-margin-top: 140px;}
 .msg-body{display:flex;gap:8px;align-items:flex-start;flex:1;min-width:0;margin-left:2px;}
 .msg-deleted-placeholder{display:none;flex:1;font-size:12px;font-style:italic;opacity:.85;padding:8px 0;}
 .msg.msg-deleted .msg-body{display:none !important;}
 .msg.msg-deleted .msg-deleted-placeholder{display:block !important;}
-.msg.msg-highlight{animation:msgHighlight 2s ease;}
-@keyframes msgHighlight{0%,100%{box-shadow:none}30%,70%{box-shadow:0 0 0 3px rgba(59,130,246,0.6)}}
+.msg.msg-highlight{box-shadow:0 0 0 4px #2563eb;background:#dbeafe !important;}
+body.theme-light .msg.msg-highlight{box-shadow:0 0 0 4px #2563eb;background:#dbeafe !important;}
+body.theme-dark .msg.msg-highlight{box-shadow:0 0 0 4px #60a5fa;background:rgba(59,130,246,0.35) !important;}
+body.theme-vibrant .msg.msg-highlight{box-shadow:0 0 0 4px #3b82f6;background:rgba(59,130,246,0.3) !important;}
+.search-highlight{background:rgba(234,179,8,0.55);border-radius:2px;padding:0 1px;}
+body.theme-dark .search-highlight{background:rgba(234,179,8,0.45);color:var(--text-dark);}
+body.theme-vibrant .search-highlight{background:rgba(234,179,8,0.4);}
 .msg.msg-external{border:2px dashed #3b82f6 !important;background:rgba(59,130,246,0.05) !important}
 body.theme-dark .msg.msg-external{background:rgba(59,130,246,0.1) !important}
 .msg.msg-external .name { color: #FF8C00; font-weight: bold; }

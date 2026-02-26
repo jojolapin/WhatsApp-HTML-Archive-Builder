@@ -75,20 +75,45 @@ function rotateImage(id){
  img.style.transform='rotate('+angle+'deg)';
  img.setAttribute('data-angle',angle);
 }
+function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function clearSearchHighlights(){
+ document.querySelectorAll('.msg').forEach(m=>m.classList.remove('msg-highlight'));
+ document.querySelectorAll('.content, .msg-deleted-placeholder, .trans pre').forEach(el=>{
+   el.querySelectorAll('mark.search-highlight').forEach(m=>m.replaceWith(document.createTextNode(m.textContent)));
+ });
+}
+function applyTextHighlights(term){
+ if (!term) return;
+ const esc = escapeRegex(term);
+ const re = new RegExp(esc,'gi');
+ document.querySelectorAll('.msg').forEach(msg=>{
+   if (window.getComputedStyle(msg).display === 'none') return;
+   msg.querySelectorAll('.content, .msg-deleted-placeholder, .trans pre').forEach(el=>{
+     const raw = el.textContent;
+     const escaped = raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+     el.innerHTML = escaped.replace(re,m=>'<mark class="search-highlight">'+m+'</mark>');
+   });
+ });
+}
 function filterMessages(){
  const input = document.getElementById('q').value.trim();
  const q = input.toLowerCase();
  const numMatch = input.match(/^(?:#|message|msg)?\s*(\d+)\s*$/i);
  const targetNum = numMatch ? parseInt(numMatch[1], 10) : null;
 
+ clearSearchHighlights();
+
  if (targetNum !== null) {
    document.querySelectorAll('.msg').forEach(c => { c.style.display = ''; });
    updateMessageNumbers();
    const targetMsg = document.querySelector('.msg[data-original-number="' + targetNum + '"]');
    if (targetMsg) {
-     targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
      targetMsg.classList.add('msg-highlight');
-     setTimeout(function(){ targetMsg.classList.remove('msg-highlight'); }, 2000);
+     requestAnimationFrame(function(){
+       requestAnimationFrame(function(){
+         targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+       });
+     });
    }
    return;
  }
@@ -97,6 +122,7 @@ function filterMessages(){
    c.style.display=t.includes(q)?'':'none';
  });
  updateMessageNumbers();
+ if (q) applyTextHighlights(q);
 }
 function getAllCards(){return Array.from(document.querySelectorAll('.msg'));}
 function selectAll(){getAllCards().forEach(c=>{const cb=c.querySelector('.msg-body input[type="checkbox"]');if(cb)cb.checked=true;});}
