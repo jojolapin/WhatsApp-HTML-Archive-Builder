@@ -98,6 +98,8 @@ TRANSLATIONS = {
         "html_note_placeholder": "Add a note…",
         "html_notes_saved": "Notes saved!",
         "html_message_deleted": "Message {num} — Deleted",
+        "html_show_my_interventions": "Show my interventions",
+        "html_show_all_msgs": "Show all messages",
 
         "how_to_use_content": """
             <h2>Welcome! Here's how to use this tool.</h2>
@@ -245,6 +247,8 @@ TRANSLATIONS = {
         "html_note_placeholder": "Ajouter une note…",
         "html_notes_saved": "Notes sauvegardées !",
         "html_message_deleted": "Message {num} — Supprimé",
+        "html_show_my_interventions": "Voir mes interventions",
+        "html_show_all_msgs": "Voir tous les messages",
 
         "how_to_use_content": """
             <h2>Bienvenue ! Voici comment utiliser cet outil.</h2>

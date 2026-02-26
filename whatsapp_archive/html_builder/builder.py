@@ -49,6 +49,8 @@ const HTML_STATES_SAVED = {json.dumps(html_t["html_states_saved"])};
 const HTML_STATES_RESET = {json.dumps(html_t["html_states_reset"])};
 const HTML_NOTES_SAVED = {json.dumps(html_t["html_notes_saved"])};
 const HTML_MESSAGE_DELETED = {json.dumps(html_t["html_message_deleted"])};
+const HTML_SHOW_MY_INTERVENTIONS = {json.dumps(html_t["html_show_my_interventions"])};
+const HTML_SHOW_ALL_MSGS = {json.dumps(html_t["html_show_all_msgs"])};
 const PRIORITIES = ["none", "red", "amber", "orange", "white"];
 '''
 
@@ -75,6 +77,11 @@ function rotateImage(id){
  img.style.transform='rotate('+angle+'deg)';
  img.setAttribute('data-angle',angle);
 }
+function pauseAllOtherAudios(currentAudio){
+ document.querySelectorAll('audio').forEach(function(a){
+  if(a!==currentAudio&&!a.paused){ a.pause(); }
+ });
+}
 function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 function clearSearchHighlights(){
  document.querySelectorAll('.msg').forEach(m=>m.classList.remove('msg-highlight'));
@@ -94,6 +101,25 @@ function applyTextHighlights(term){
      el.innerHTML = escaped.replace(re,m=>'<mark class="search-highlight">'+m+'</mark>');
    });
  });
+}
+var showOnlyInterventions = false;
+function msgHasIntervention(msg) {
+ var note = msg.querySelector('.msg-note');
+ var hasNote = note && note.innerText.trim().length > 0;
+ var marker = msg.querySelector('.msg-priority-marker');
+ var hasPriority = marker && (marker.dataset.priority || 'none') !== 'none';
+ var cb = msg.querySelector('.msg-body input[type="checkbox"]');
+ var hasCheck = cb && cb.checked;
+ return hasNote || hasPriority || hasCheck;
+}
+function toggleInterventionsFilter() {
+ showOnlyInterventions = !showOnlyInterventions;
+ var btn = document.getElementById('btn-interventions');
+ if (btn) {
+   btn.textContent = showOnlyInterventions ? HTML_SHOW_ALL_MSGS : HTML_SHOW_MY_INTERVENTIONS;
+   btn.classList.toggle('active', showOnlyInterventions);
+ }
+ filterMessages();
 }
 function filterMessages(){
  const input = document.getElementById('q').value.trim();
@@ -119,7 +145,9 @@ function filterMessages(){
  }
  document.querySelectorAll('.msg').forEach(c=>{
    const t=c.innerText.toLowerCase();
-   c.style.display=t.includes(q)?'':'none';
+   const showBySearch = !q || t.includes(q);
+   const showByInterventions = !showOnlyInterventions || msgHasIntervention(c);
+   c.style.display = (showBySearch && showByInterventions) ? '' : 'none';
  });
  updateMessageNumbers();
  if (q) applyTextHighlights(q);
@@ -156,26 +184,29 @@ function downloadHTML(){
     if (marker) marker.setAttribute('data-priority', marker.dataset.priority || 'none');
  });
 
- // 2. Snapshot note values so they survive cloneNode
+ // 2. Snapshot note HTML so they survive cloneNode
  const noteSnapshots = {};
- document.querySelectorAll('.msg-note').forEach(ta => {
-     noteSnapshots[ta.id] = ta.value;
+ document.querySelectorAll('.msg-note').forEach(el => {
+     noteSnapshots[el.id] = el.innerText.trim() ? sanitizeNoteHtml(el.innerHTML) : '';
  });
 
  // 3. Clone the document
  const clonedDoc = document.cloneNode(true);
 
- // 4. Bake note values into the clone
- clonedDoc.querySelectorAll('.msg-note').forEach(ta => {
-     const val = noteSnapshots[ta.id] || '';
-     ta.textContent = val;
-     ta.setAttribute('data-baked', 'true');
+ // 4. Bake note HTML into the clone
+ clonedDoc.querySelectorAll('.msg-note').forEach(el => {
+     const val = noteSnapshots[el.id] || '';
+     el.innerHTML = val;
+     el.setAttribute('data-baked', 'true');
      if (val.trim()) {
-         ta.classList.add('has-content');
+         el.classList.add('has-content');
+         el.classList.remove('empty');
      } else {
-         ta.classList.remove('has-content');
+         el.classList.remove('has-content');
+         el.classList.add('empty');
      }
-     ta.removeAttribute('oninput');
+     el.removeAttribute('oninput');
+     el.removeAttribute('onpaste');
  });
 
  // 5. Bake checkbox states into the HTML (keep them, don't remove)
@@ -203,15 +234,16 @@ function downloadHTML(){
 
  // 8. Clean interactive-only buttons from the clone
  clonedDoc.querySelectorAll('.msg-priority-marker').forEach(el => el.removeAttribute('onclick'));
- const buttonsToRemove = [
+const buttonsToRemove = [
    "selectAll()",
    "clearAll()",
    "invertSel()",
    "deleteSelected()",
+   "toggleInterventionsFilter()",
    "downloadHTML()",
    "saveCheckboxStates()",
    "resetCheckboxStates()"
- ];
+];
  clonedDoc.querySelectorAll('.toolbar button').forEach(btn => {
    const onclick = btn.getAttribute('onclick');
    if (buttonsToRemove.includes(onclick)) {
@@ -295,16 +327,60 @@ function resetCheckboxStates() {
 }
 /* --- End Checkbox Persistence --- */
 
-/* --- Notes Logic --- */
+/* --- Notes Logic (rich-text: contenteditable, preserves lists/indent) --- */
+var ALLOWED_NOTE_TAGS = {'P':1,'BR':1,'DIV':1,'SPAN':1,'UL':1,'OL':1,'LI':1,'STRONG':1,'EM':1,'B':1,'I':1,'U':1,'SUB':1,'SUP':1};
+function sanitizeNoteHtml(html) {
+    if (!html || !html.trim()) return '';
+    var doc = document.implementation.createHTMLDocument('');
+    var root = doc.body;
+    root.innerHTML = html;
+    function go(node) {
+        if (node.nodeType === 3) return node.cloneNode(true);
+        if (node.nodeType !== 1) return null;
+        var tag = node.tagName.toUpperCase();
+        if (!ALLOWED_NOTE_TAGS[tag]) return null;
+        var out = doc.createElement(tag);
+        var an = node.attributes;
+        for (var i = 0; i < an.length; i++) {
+            var n = an[i].name.toLowerCase(), v = an[i].value;
+            if ((n === 'style' || n === 'class') && (tag === 'P' || tag === 'DIV' || tag === 'SPAN' || tag === 'LI')) out.setAttribute(n, v);
+        }
+        for (var j = 0; j < node.childNodes.length; j++) {
+            var c = go(node.childNodes[j]);
+            if (c) out.appendChild(c);
+        }
+        return out;
+    }
+    var wrap = doc.createElement('div');
+    for (var k = 0; k < root.childNodes.length; k++) {
+        var c = go(root.childNodes[k]);
+        if (c) wrap.appendChild(c);
+    }
+    return wrap.innerHTML;
+}
+function onNotePaste(ev) {
+    var html = ev.clipboardData && ev.clipboardData.getData('text/html');
+    var text = ev.clipboardData && ev.clipboardData.getData('text/plain');
+    if (html && html.trim()) {
+        ev.preventDefault();
+        var clean = sanitizeNoteHtml(html);
+        if (clean) document.execCommand('insertHTML', false, clean);
+    } else if (text) {
+        ev.preventDefault();
+        document.execCommand('insertText', false, text);
+    }
+}
 function onNoteInput(el) {
-    el.classList.toggle('has-content', el.value.trim().length > 0);
+    var has = el.innerText.trim().length > 0;
+    if (!has) { el.innerHTML = ''; el.classList.add('empty'); } else { el.classList.remove('empty'); }
+    el.classList.toggle('has-content', has);
     saveNotes();
 }
 function saveNotes() {
     try {
         const notes = {};
-        document.querySelectorAll('.msg-note').forEach(ta => {
-            if (ta.id && ta.value.trim()) { notes[ta.id] = ta.value; }
+        document.querySelectorAll('.msg-note').forEach(el => {
+            if (el.id && el.innerText.trim()) { notes[el.id] = sanitizeNoteHtml(el.innerHTML); }
         });
         localStorage.setItem(storageKey('msgNotes'), JSON.stringify(notes));
     } catch (e) {
@@ -313,18 +389,19 @@ function saveNotes() {
 }
 function loadNotes() {
     try {
-        document.querySelectorAll('.msg-note[data-baked="true"]').forEach(ta => {
-            ta.value = ta.textContent;
-            ta.textContent = '';
-            ta.removeAttribute('data-baked');
-            ta.classList.toggle('has-content', ta.value.trim().length > 0);
+        document.querySelectorAll('.msg-note[data-baked="true"]').forEach(el => {
+            el.removeAttribute('data-baked');
+            var has = el.innerText.trim().length > 0;
+            if (!has) { el.innerHTML = ''; el.classList.add('empty'); } else { el.classList.remove('empty'); }
+            el.classList.toggle('has-content', has);
         });
         const notes = JSON.parse(migrateKey('msgNotes') || '{}');
         Object.keys(notes).forEach(id => {
-            const ta = document.getElementById(id);
-            if (ta && !ta.value.trim()) {
-                ta.value = notes[id];
-                ta.classList.toggle('has-content', ta.value.trim().length > 0);
+            const el = document.getElementById(id);
+            if (el && !el.innerText.trim()) {
+                el.innerHTML = sanitizeNoteHtml(notes[id]);
+                el.classList.remove('empty');
+                el.classList.toggle('has-content', el.innerText.trim().length > 0);
             }
         });
     } catch (e) {
@@ -425,6 +502,10 @@ function loadDeletedStates() {
 /* --- End Deleted state --- */
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('play', function(ev) {
+        if (ev.target.tagName === 'AUDIO') { pauseAllOtherAudios(ev.target); }
+    }, true);
+
     const isBaked = !!document.querySelector('meta[name="baked-state"][content="true"]');
 
     if (!isBaked) {
@@ -748,7 +829,7 @@ async function initWhisperTranscription(button, audioSrc) {
 {content_block}
 {media_block}
 </div>
-<textarea class="msg-note" id="{note_id}" placeholder="{note_placeholder}" oninput="onNoteInput(this)"></textarea>
+<div class="msg-note empty" id="{note_id}" contenteditable="true" data-placeholder="{note_placeholder}" oninput="onNoteInput(this)" onpaste="onNotePaste(event)"></div>
 </div>
 <div class="msg-deleted-placeholder" style="display:none" aria-hidden="true"></div>
 </div>''')
@@ -761,12 +842,14 @@ async function initWhisperTranscription(button, audioSrc) {
     html_doc = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title><style>{css}</style></head>
-<body class="theme-light"><div class="header"><h1>{html.escape(title)}</h1></div>
+<body class="theme-light"><div class="sticky-top">
+<div class="header"><h1>{html.escape(title)}</h1></div>
 <div class="toolbar">
 <button onclick="selectAll()">{html_t["html_select_all"]}</button>
 <button onclick="clearAll()">{html_t["html_clear"]}</button>
 <button onclick="invertSel()">{html_t["html_invert"]}</button>
 <button onclick="deleteSelected()">{html_t["html_delete_selected"]}</button>
+<button onclick="toggleInterventionsFilter()" id="btn-interventions">{html_t["html_show_my_interventions"]}</button>
 <button onclick="downloadHTML()">{html_t["html_download_pruned"]}</button>
 <button onclick="saveCheckboxStates()">{html_t["html_save_states"]}</button>
 <button onclick="resetCheckboxStates()">{html_t["html_reset_states"]}</button>
@@ -776,6 +859,7 @@ async function initWhisperTranscription(button, audioSrc) {
 <option value="vibrant">{html_t["html_theme_vibrant"]}</option>
 </select></div>
 <div class="search"><input id="q" type="search" placeholder="{html_t["html_search_placeholder"]}" oninput="filterMessages()"></div>
+</div>
 <div class="container">{''.join(blocks)}</div>
 <div class="footer">{html_t["html_footer"]}</div>
 {key_script}
