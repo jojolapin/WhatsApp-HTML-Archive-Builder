@@ -112,6 +112,26 @@ See `requirements.txt` for pinned versions.
 
 ---
 
+## Building a single .exe
+
+To produce **one executable** (no extra folders or DLLs) with an app icon:
+
+1. **Install build dependencies** (once). You need **Pillow** and **PyInstaller**; both are listed in `requirements-build.txt`:
+   ```bash
+   pip install Pillow
+   pip install PyInstaller
+   ```
+   Or install everything (app + build deps) in one go:
+   ```bash
+   pip install -r requirements.txt -r requirements-build.txt
+   ```
+2. **Run the build** from the project root:
+   - In **PyCharm**: open `build.py` → **Run** (green ▶). No command line needed.
+   - Or in a terminal: `python build.py`
+3. The executable is created at **`dist/WhatsAppArchive.exe`**. The script generates an icon (chat-bubble style) automatically; you can replace `app.ico` with your own before building if you prefer.
+
+---
+
 ## License
 
 Private project — LONAB 2026.
