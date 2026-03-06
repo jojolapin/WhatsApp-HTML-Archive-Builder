@@ -52,6 +52,23 @@ const HTML_MESSAGE_DELETED = {json.dumps(html_t["html_message_deleted"])};
 const HTML_SHOW_MY_INTERVENTIONS = {json.dumps(html_t["html_show_my_interventions"])};
 const HTML_SHOW_ALL_MSGS = {json.dumps(html_t["html_show_all_msgs"])};
 const PRIORITIES = ["none", "red", "amber", "orange", "white"];
+const REPORT_TITLE = {json.dumps(html_t["html_report_title"])};
+const REPORT_SUBTITLE = {json.dumps(html_t["html_report_subtitle"])};
+const REPORT_DATE = {json.dumps(html_t["html_report_date"])};
+const REPORT_MSG_NUM = {json.dumps(html_t["html_report_msg_num"])};
+const REPORT_NAME = {json.dumps(html_t["html_report_name"])};
+const REPORT_NOTE = {json.dumps(html_t["html_report_note"])};
+const REPORT_PRIORITY = {json.dumps(html_t["html_report_priority"])};
+const REPORT_SELECTED = {json.dumps(html_t["html_report_selected"])};
+const REPORT_CONTENT = {json.dumps(html_t["html_report_content"])};
+const REPORT_TRANSCRIPTION = {json.dumps(html_t["html_report_transcription"])};
+const REPORT_MESSAGE_HIDDEN = {json.dumps(html_t["html_report_message_hidden"])};
+const REPORT_FOOTER = {json.dumps(html_t["html_report_footer"])};
+const REPORT_NO_INTERVENTIONS = {json.dumps(html_t["html_report_no_interventions"])};
+const REPORT_PRIORITY_RED = {json.dumps(html_t["html_report_priority_red"])};
+const REPORT_PRIORITY_AMBER = {json.dumps(html_t["html_report_priority_amber"])};
+const REPORT_PRIORITY_ORANGE = {json.dumps(html_t["html_report_priority_orange"])};
+const REPORT_PRIORITY_WHITE = {json.dumps(html_t["html_report_priority_white"])};
 '''
 
     js_functions = r'''
@@ -108,9 +125,7 @@ function msgHasIntervention(msg) {
  var hasNote = note && note.innerText.trim().length > 0;
  var marker = msg.querySelector('.msg-priority-marker');
  var hasPriority = marker && (marker.dataset.priority || 'none') !== 'none';
- var cb = msg.querySelector('.msg-body input[type="checkbox"]');
- var hasCheck = cb && cb.checked;
- return hasNote || hasPriority || hasCheck;
+ return hasNote || hasPriority;
 }
 function toggleInterventionsFilter() {
  showOnlyInterventions = !showOnlyInterventions;
@@ -242,7 +257,9 @@ const buttonsToRemove = [
    "toggleInterventionsFilter()",
    "downloadHTML()",
    "saveCheckboxStates()",
-   "resetCheckboxStates()"
+   "resetCheckboxStates()",
+   "downloadReportPDF()",
+   "downloadReportWord()"
 ];
  clonedDoc.querySelectorAll('.toolbar button').forEach(btn => {
    const onclick = btn.getAttribute('onclick');
@@ -450,6 +467,187 @@ function loadPriorities() {
     }
 }
 /* --- End Priority Logic --- */
+
+/* --- Interventions Report (PDF / Word) --- */
+function reportPriorityLabel(p) {
+    if (p === 'red') return REPORT_PRIORITY_RED;
+    if (p === 'amber') return REPORT_PRIORITY_AMBER;
+    if (p === 'orange') return REPORT_PRIORITY_ORANGE;
+    if (p === 'white') return REPORT_PRIORITY_WHITE;
+    return '';
+}
+function getReportEntries() {
+    const entries = [];
+    document.querySelectorAll('.msg').forEach(function(msg) {
+        if (!msgHasIntervention(msg)) return;
+        var num = msg.getAttribute('data-original-number') || '';
+        var metaEl = msg.querySelector('.meta');
+        var metaText = metaEl ? metaEl.innerText.trim() : '';
+        var nameEl = metaEl ? metaEl.querySelector('.name') : null;
+        var name = nameEl ? nameEl.innerText.trim() : '';
+        var noteEl = msg.querySelector('.msg-note');
+        var note = noteEl && noteEl.innerText.trim() ? noteEl.innerText.trim() : '';
+        var marker = msg.querySelector('.msg-priority-marker');
+        var priority = marker ? (marker.dataset.priority || 'none') : 'none';
+        var isDeleted = msg.dataset.deleted === 'true';
+        var content = '';
+        var transcription = '';
+        if (isDeleted) {
+            content = REPORT_MESSAGE_HIDDEN;
+        } else {
+            var contentEl = msg.querySelector('.content');
+            if (contentEl) content = contentEl.innerText.trim();
+            var transPre = msg.querySelector('.trans pre') || msg.querySelector('.attach pre[id^="transcription-pre-"]') || msg.querySelector('pre[id^="transcription-pre-"]');
+            if (transPre) transcription = transPre.textContent.trim();
+        }
+        entries.push({ metaText: metaText, num: num, name: name, note: note, priority: priority, content: content, transcription: transcription, isDeleted: isDeleted });
+    });
+    entries.sort(function(a, b) { return parseInt(a.num, 10) - parseInt(b.num, 10); });
+    return entries;
+}
+function loadScript(src) {
+    return new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+}
+function downloadReportPDF() {
+    var entries = getReportEntries();
+    if (!entries.length) { alert(REPORT_NO_INTERVENTIONS); return; }
+    var title = document.querySelector('.header h1') ? document.querySelector('.header h1').textContent : (document.title || 'Archive');
+    var genDate = new Date().toLocaleString();
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js').then(function() {
+        var jsPDF = window.jspdf.jsPDF;
+        var doc = new jsPDF();
+        var margin = 18;
+        var marginBottom = 22;
+        var lineHeight = 5.5;
+        var sectionGap = 4;
+        var pageHeight = doc.internal.pageSize.height;
+        var maxWidth = doc.internal.pageSize.width - margin * 2;
+        doc.setFontSize(18);
+        doc.setFont(undefined, 'bold');
+        doc.text(REPORT_TITLE, margin, 22);
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(10);
+        doc.text(REPORT_SUBTITLE.replace('{title}', title).replace('{date}', genDate), margin, 30);
+        var y = 40;
+        entries.forEach(function(entry, idx) {
+            if (y > pageHeight - marginBottom) { doc.addPage(); y = margin; }
+            if (idx > 0) { y += sectionGap; }
+            doc.setFont(undefined, 'bold');
+            doc.setFontSize(11);
+            var metaLine = entry.metaText + '   ·   ' + REPORT_MSG_NUM + ' ' + entry.num;
+            var metaLines = doc.splitTextToSize(metaLine, maxWidth);
+            metaLines.forEach(function(line) {
+                if (y > pageHeight - marginBottom) { doc.addPage(); y = margin; }
+                doc.text(line, margin, y);
+                y += lineHeight;
+            });
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(10);
+            y += 2;
+            if (entry.note) {
+                var noteLines = doc.splitTextToSize(REPORT_NOTE + ': ' + entry.note, maxWidth);
+                noteLines.forEach(function(line) {
+                    if (y > pageHeight - marginBottom) { doc.addPage(); y = margin; }
+                    doc.text(line, margin, y);
+                    y += lineHeight;
+                });
+                y += 2;
+            }
+            if (entry.priority !== 'none') {
+                doc.text(REPORT_PRIORITY + ': ' + reportPriorityLabel(entry.priority), margin, y);
+                y += lineHeight + 2;
+            }
+            var contentBlock = '';
+            if (entry.isDeleted) {
+                contentBlock = REPORT_CONTENT + ':\n' + REPORT_MESSAGE_HIDDEN;
+            } else {
+                contentBlock = REPORT_CONTENT + ':';
+                if (entry.content) contentBlock += '\n' + entry.content + (entry.transcription ? ':' : '');
+                if (entry.transcription) contentBlock += '\n' + REPORT_TRANSCRIPTION + ':\n' + entry.transcription;
+                if (!entry.content && !entry.transcription) contentBlock += '\n';
+            }
+            if (contentBlock) {
+                var contentLines = doc.splitTextToSize(contentBlock, maxWidth);
+                contentLines.forEach(function(line) {
+                    if (y > pageHeight - marginBottom) { doc.addPage(); y = margin; }
+                    doc.text(line, margin, y);
+                    y += lineHeight;
+                });
+            }
+            y += sectionGap;
+        });
+        if (y > pageHeight - marginBottom) { doc.addPage(); y = margin; }
+        y += 4;
+        doc.setFontSize(8);
+        doc.setTextColor(100, 100, 100);
+        var footer = REPORT_FOOTER.replace('{date}', genDate);
+        var footerLines = doc.splitTextToSize(footer, maxWidth);
+        footerLines.forEach(function(line) {
+            if (y > pageHeight - marginBottom) { doc.addPage(); y = margin; }
+            doc.text(line, margin, y);
+            y += lineHeight;
+        });
+        doc.setTextColor(0, 0, 0);
+        doc.save('rapport_interventions_' + new Date().toISOString().slice(0, 10) + '.pdf');
+    }).catch(function(e) { alert('PDF export failed: ' + (e && e.message ? e.message : e)); });
+}
+function downloadReportWord() {
+    var entries = getReportEntries();
+    if (!entries.length) { alert(REPORT_NO_INTERVENTIONS); return; }
+    var title = document.querySelector('.header h1') ? document.querySelector('.header h1').textContent : (document.title || 'Archive');
+    var genDate = new Date().toLocaleString();
+    var escapeHtml = function(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    };
+    var nl2br = function(s) { return escapeHtml(s).replace(/\n/g, '<br>'); };
+    var style = 'body{font-family:Segoe UI,Calibri,Arial,sans-serif;font-size:11pt;line-height:1.4;margin:1in;color:#222;}';
+    style += 'h1{font-size:18pt;margin-bottom:6px;color:#1a1a1a;}';
+    style += '.subtitle{font-size:10pt;color:#555;margin-bottom:24px;}';
+    style += '.entry{margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #ddd;}';
+    style += '.meta{font-size:11pt;font-weight:bold;margin-bottom:8px;color:#333;}';
+    style += '.field{margin:6px 0;font-size:10.5pt;}';
+    style += '.field-label{font-style:italic;color:#444;}';
+    style += '.content-block{margin-top:8px;padding:10px 0;white-space:pre-wrap;}';
+    style += '.footer{font-size:9pt;color:#777;margin-top:32px;padding-top:16px;border-top:1px solid #eee;}';
+    var blocks = [];
+    blocks.push('<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>' + escapeHtml(REPORT_TITLE) + '</title><style>' + style + '</style></head><body>');
+    blocks.push('<h1>' + escapeHtml(REPORT_TITLE) + '</h1>');
+    blocks.push('<p class="subtitle">' + escapeHtml(REPORT_SUBTITLE.replace('{title}', title).replace('{date}', genDate)) + '</p>');
+    entries.forEach(function(entry) {
+        blocks.push('<div class="entry">');
+        blocks.push('<p class="meta">' + escapeHtml(entry.metaText) + ' &nbsp; ' + REPORT_MSG_NUM + ' ' + escapeHtml(entry.num) + '</p>');
+        if (entry.note) blocks.push('<p class="field"><span class="field-label">' + REPORT_NOTE + ':</span> ' + nl2br(entry.note) + '</p>');
+        if (entry.priority !== 'none') blocks.push('<p class="field"><span class="field-label">' + REPORT_PRIORITY + ':</span> ' + escapeHtml(reportPriorityLabel(entry.priority)) + '</p>');
+        blocks.push('<p class="field"><span class="field-label">' + REPORT_CONTENT + ':</span></p>');
+        if (entry.isDeleted) {
+            blocks.push('<p class="content-block">' + escapeHtml(REPORT_MESSAGE_HIDDEN) + '</p>');
+        } else {
+            if (entry.content) blocks.push('<p class="content-block">' + nl2br(entry.content) + (entry.transcription ? ':' : '') + '</p>');
+            if (entry.transcription) blocks.push('<p class="field"><span class="field-label">' + REPORT_TRANSCRIPTION + ':</span></p><p class="content-block">' + nl2br(entry.transcription) + '</p>');
+        }
+        blocks.push('</div>');
+    });
+    blocks.push('<p class="footer">' + escapeHtml(REPORT_FOOTER.replace('{date}', genDate)) + '</p>');
+    blocks.push('</body></html>');
+    var html = blocks.join('');
+    var blob = new Blob(['\ufeff' + html], { type: 'application/msword' });
+    var blobUrl = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = 'rapport_interventions_' + new Date().toISOString().slice(0, 10) + '.doc';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+}
+/* --- End Interventions Report --- */
 
 /* --- Permanent numbering: badge shows data-original-number, visibility follows filter --- */
 function updateMessageNumbers() {
@@ -800,7 +998,10 @@ async function initWhisperTranscription(button, audioSrc) {
         time_str = dt_obj.strftime('%H:%M')
 
         gmt_dt = dt_obj.astimezone(UTC_TZ)
-        gmt_time_str = gmt_dt.strftime('%H:%M %Z')
+        if lang == "fr":
+            gmt_time_str = gmt_dt.strftime("%H:%M") + " GMT"
+        else:
+            gmt_time_str = gmt_dt.strftime("%H:%M %Z")
 
         meta = f'{html.escape(date_str)} {html.escape(time_str)} (<b>{html.escape(gmt_time_str)}</b>)'
         if name:
@@ -853,6 +1054,8 @@ async function initWhisperTranscription(button, audioSrc) {
 <button onclick="downloadHTML()">{html_t["html_download_pruned"]}</button>
 <button onclick="saveCheckboxStates()">{html_t["html_save_states"]}</button>
 <button onclick="resetCheckboxStates()">{html_t["html_reset_states"]}</button>
+<button onclick="downloadReportPDF()">{html_t["html_report_pdf"]}</button>
+<button onclick="downloadReportWord()">{html_t["html_report_word"]}</button>
 <select onchange="setTheme(this.value)">
 <option value="light">{html_t["html_theme_light"]}</option>
 <option value="dark">{html_t["html_theme_dark"]}</option>
